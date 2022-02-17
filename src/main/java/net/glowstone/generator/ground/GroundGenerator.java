@@ -48,11 +48,15 @@ public class GroundGenerator {
         int surfaceHeight = Math
             .max((int) (surfaceNoise / 3.0D + 3.0D + random.nextDouble() * 0.25D), 1);
         int deep = -1;
+
         for (int y = 255; y >= 0; y--) {
+            // if at bedrock level
             if (y <= random.nextInt(5)) {
                 chunkData.setBlock(x, y, z, Material.BEDROCK);
             } else {
+
                 Material mat = chunkData.getType(x, y, z);
+                
                 if (mat == Material.AIR) {
                     deep = -1;
                 } else if (mat == Material.STONE) {

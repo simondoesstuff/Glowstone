@@ -158,6 +158,7 @@ public class OverworldGenerator extends GlowChunkGenerator {
     private static final double[][] ELEVATION_WEIGHT = new double[5][5];
     private static final Map<Biome, GroundGenerator> GROUND_MAP = new EnumMap<>(Biome.class);
     private static final Map<Biome, BiomeHeight> HEIGHT_MAP = new EnumMap<>(Biome.class);
+
     private static double coordinateScale;
     private static double heightScale;
     private static double heightNoiseScaleX; // depthNoiseScaleX
@@ -274,79 +275,36 @@ public class OverworldGenerator extends GlowChunkGenerator {
     }
 
     @Override
-    public ChunkData generateChunkData(World world, Random random, int chunkX, int chunkZ,
-            BiomeGrid biomes) {
+    public ChunkData generateChunkData(World world, Random random, int chunkX, int chunkZ, BiomeGrid biomes) {
         ChunkData chunkData = generateRawTerrain(world, chunkX, chunkZ);
+        // terrain is already constructed, now the ground generator will "paint" it
 
         int cx = chunkX << 4;
         int cz = chunkZ << 4;
 
-        SimplexOctaveGenerator octaveGenerator = ((SimplexOctaveGenerator) getWorldOctaves(world)
-                .get("surface"));
+        // used to generate surface noise
+        SimplexOctaveGenerator octaveGenerator = ((SimplexOctaveGenerator) getWorldOctaves(world).get("surface"));
         int sizeX = octaveGenerator.getSizeX();
         int sizeZ = octaveGenerator.getSizeZ();
-        if (((GlowServer) ServerProvider.getServer()).doesUseGraphicsCompute()) {
-            CLKernel noiseGen = null;
-            CLBuffer<FloatBuffer> noise = null;
-            try {
-                // Initialize OpenCL stuff and put args
-                CLProgram program = OpenCompute.getProgram("net/glowstone/CLRandom.cl");
-                int workSize = sizeX * octaveGenerator.getSizeY() * sizeZ;
-                noise = OpenCompute.getContext()
-                        .createFloatBuffer(workSize, CLMemory.Mem.WRITE_ONLY);
-                noiseGen = OpenCompute.getKernel(program, "GenerateNoise");
-                noiseGen.putArg(random.nextFloat())
-                        .putArg(random.nextFloat())
-                        .putArg(noise)
-                        .putArg(workSize);
 
-                // Calculate noise on GPU
-                OpenCompute.getQueue()
-                        .put1DRangeKernel(noiseGen, 0, OpenCompute.getGlobalSize(workSize),
-                                OpenCompute.getLocalSize())
-                        .putReadBuffer(noise, true);
+        // generate
 
-                // Use noise
-                for (int x = 0; x < sizeX; x++) {
-                    for (int z = 0; z < sizeZ; z++) {
-                        if (GROUND_MAP.containsKey(biomes.getBiome(x, z))) {
-                            GROUND_MAP.get(biomes.getBiome(x, z))
-                                    .generateTerrainColumn(chunkData, world, random, cx + x, cz + z,
-                                            biomes.getBiome(x, z), noise.getBuffer()
-                                                    .get(x | z << 4));
-                        } else {
-                            groundGen
-                                    .generateTerrainColumn(chunkData, world, random, cx + x, cz + z,
-                                            biomes.getBiome(x, z), noise.getBuffer()
-                                                    .get(x | z << 4));
-                        }
-                    }
-                }
-            } finally {
-                // Clean up
-                if (noise != null) {
-                    ServerProvider.getServer().getScheduler()
-                            .runTaskAsynchronously(null, noise::release);
-                }
-                if (noiseGen != null) {
-                    noiseGen.rewind();
-                }
-            }
-        } else {
-            double[] surfaceNoise = octaveGenerator.getFractalBrownianMotion(cx, cz, 0.5D, 0.5D);
-            for (int x = 0; x < sizeX; x++) {
-                for (int z = 0; z < sizeZ; z++) {
-                    if (GROUND_MAP.containsKey(biomes.getBiome(x, z))) {
+        double[] surfaceNoise = octaveGenerator.getFractalBrownianMotion(cx, cz, 0.5D, 0.5D);
+
+        for (int x = 0; x < sizeX; x++) {
+        for (int z = 0; z < sizeZ; z++) {
+                // if there is a special ground generator for THIS biome
+                // otherwise, use the default ground generator
+
+                if (GROUND_MAP.containsKey(biomes.getBiome(x, z))) {
                         GROUND_MAP.get(biomes.getBiome(x, z))
                                 .generateTerrainColumn(chunkData, world, random, cx + x, cz + z,
                                         biomes.getBiome(x, z), surfaceNoise[x | z << 4]);
-                    } else {
+                } else {
                         groundGen.generateTerrainColumn(chunkData, world, random, cx + x, cz + z,
                                 biomes.getBiome(x, z), surfaceNoise[x | z << 4]);
-                    }
                 }
-            }
-        }
+        }}
         return chunkData;
     }
 
